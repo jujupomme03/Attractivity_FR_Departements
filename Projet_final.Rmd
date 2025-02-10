@@ -1,0 +1,905 @@
+---
+title: 'Les disparités de développement économique entre les départements français
+  : Analyse des facteurs d’attractivité'
+author: "Astrid Eliaka"
+date: "2024-12-18"
+output: html_document
+---
+
+```{r setup, include=FALSE,message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = TRUE,message = FALSE, warning = FALSE,comment=NA)
+```
+
+# Introduction
+
+Ce sujet propose d’étudier et de comparer les facteurs socio-économiques qui influencent le développement économique et l’attractivité de plusieurs départements français. La création d’entreprises, en particulier, est un indicateur clé pour mesurer l’attractivité d’un territoire. Dans cette étude, nous cherchons à identifier les facteurs qui encourageront la création d'entreprises dans un département. Ce sujet est pertinent dans le sens où il peut permettre d’éclairer les décideurs publics sur les politiques à prioriser pour réduire les disparités territoriales.
+
+Nous avons choisi d'étudier la proportion de création d'entreprises en 2022 par rapport à des facteurs de 2021.
+
++--------+---------------------------------------------------------------------------+---------------------+--------------------------+-------------------------------------------------------------------------------------+
+| Code   | Définition                                                                | Unité               | Source                   | Traitement                                                                          |
++========+===========================================================================+=====================+==========================+=====================================================================================+
+| pcENT  | Proportion de création entreprises par rapport aux entreprises existantes | En pourcentage      | INSEE                    | Division du nombre d’entreprises créées par le nombre d’entreprises déjà existantes |
++--------+---------------------------------------------------------------------------+---------------------+--------------------------+-------------------------------------------------------------------------------------+
+| nbENT  | Nombre d’entreprise                                                       | En milliers         | INSEE                    | |                                                   |                               |
+|        |                                                                           |                     |                          | |---------------------------------------------------|                               |
+|        |                                                                           |                     |                          | | Division du nombre d’entreprise en 2021 par 1 000 |                               |
++--------+---------------------------------------------------------------------------+---------------------+--------------------------+-------------------------------------------------------------------------------------+
+| POP    | Population municipale                                                     | En milliers         | INSEE                    | Division de la population par 1 000                                                 |
++--------+---------------------------------------------------------------------------+---------------------+--------------------------+-------------------------------------------------------------------------------------+
+| DIPL   | |                                     |                                   | En pourcentage      | INSEE                    | Somme de la part des diplômés d’un Bac+3/Bac+4 avec ceux qui ont un Bac+5 et plus   |
+|        | |-------------------------------------|                                   |                     |                          |                                                                                     |
+|        | | Part de diplômés d’un Bac+3 et plus |                                   |                     |                          |                                                                                     |
++--------+---------------------------------------------------------------------------+---------------------+--------------------------+-------------------------------------------------------------------------------------+
+| REV    | Revenu annuel médian                                                      | En milliers d'euros | INSEE                    | Division du revenu médian par 1000                                                  |
++--------+---------------------------------------------------------------------------+---------------------+--------------------------+-------------------------------------------------------------------------------------+
+| gndENT | Nombre de grandes entreprises                                             | En unité            | Data.gouv                | |                                                  |                                |
+|        |                                                                           |                     |                          | |--------------------------------------------------|                                |
+|        |                                                                           |                     |                          | | Division du nombre de grande entreprise par 1000 |                                |
++--------+---------------------------------------------------------------------------+---------------------+--------------------------+-------------------------------------------------------------------------------------+
+| txCHOM | Taux de chômage                                                           | En pourcentage      | INSEE                    |                                                                                     |
++--------+---------------------------------------------------------------------------+---------------------+--------------------------+-------------------------------------------------------------------------------------+
+| METRO  | Présence d’une métropole                                                  | Indicatrice         | Collectives locales.gouv | 1 : Département abritant une métropole                                              |
+|        |                                                                           |                     |                          |                                                                                     |
+|        |                                                                           |                     |                          | 0 : Autres départements                                                             |
++--------+---------------------------------------------------------------------------+---------------------+--------------------------+-------------------------------------------------------------------------------------+
+
+### Packages
+
+```{r, message=FALSE, warning=FALSE}
+library(sf)
+library(ggcorrplot)
+library(corrplot)
+library(GGally)
+library(plotly)
+library(gridExtra)
+library(readxl)
+library(ggplot2)
+library(hrbrthemes)
+library(pastecs)
+library(car)
+library(MASS)
+library(lmtest)
+library(sandwich)
+library(readxl)
+library(stargazer)
+library(patchwork)
+library(strucchange)
+
+```
+
+# PARTIE 1 : Description des données
+
+### Importation des données
+
+```{r, message=FALSE, warning=FALSE}
+BD <- read_excel("BD_brute.xls", sheet = 3) 
+```
+
+# 1.1. Manipulations/transformations de variables
+
+Le jeu de données a été nettoyé. Les valeurs manquantes et les départements d'Outre-mer et de la Corse ont été supprimées. Les 94 départements présents en France métropolitaine ne contenaient pas de valeur manquante.
+
+```{r, message=FALSE, warning=FALSE}
+#verification du type de données
+str(BD)
+
+#Transformation de la variable METRO en facteur 
+BD$METRO <- as.factor(BD$METRO)
+str(BD)
+
+table(BD$METRO)
+
+```
+
+**Les variables pertinentes à analyser pour notre projet sont :**
+
+[Les variables quantitatives]{.underline} : pcENT, nbENT, POP, DIPL, REV,gndENT et txCHOM
+
+[Les variables qualitatives]{.underline} : METRO
+
+METRO est une variable indicatrice, nous l'avons donc transformée en facteur.
+
+22 départements ont une métropole sur leur territoire contre 72 départements qui n'en ont pas.
+
+# 1.2. Analyse descriptive
+
+## 1.2.1. Statistiques descriptives univariées
+
+### Tableau de statistique descriptive
+
+```{r, message=FALSE, warning=FALSE}
+statdes <- stat.desc(BD[, c("pcENT", "nbENT", "POP", "DIPL", "REV", "gndENT", "txCHOM")])
+statdes <- statdes[!rownames(statdes) %in% c("range", "sum", "nbr.val", "nbr.null", "nbr.na","SE.mean","CI.mean.0.95", "var", "coef.var" ), ]
+
+statdes
+```
+
+**Commentaires :**
+
+-   **Proportion de création d'entreprises (pcENT)** **:** La moyenne nationale de la proportion de création d'entreprises est de 18,35%. La proportion de création d'entreprise varie entre 12,4% et 33,9%, certains départements semblent plus dynamiques en matière de création d'entreprises que d'autres.
+
+-   **Nombre d'entreprises (nbENT)** **:** Le nombre d'entreprises varie de 5 800 à 455 000, ce qui indique une très forte hétérogénéité. Cela pourrait être lié à la taille du département (population) ou à l'attractivité économique des départements.
+
+-   **Population (POP) :** La moyenne de la population est d'environ 693 habitants. La médiane est légèrement plus faible, ce qui suggère qu'une minorité de départements très peuplés tirent la moyenne vers le haut.
+
+-   **Part des diplômés Bac+3 et plus (DIPL) :** On a une moyenne de 17,76 %. Cela suggère que dans la plupart des départements, la population est relativement qualifiée. La part de diplômés d'un Bac+3 varie entre 9,9% et 56,7%, certains départements concentrent plus de personnes qualifiées que d'autres. Cela peut s'expliquer par la présence de campus universitaires.
+
+-   **Le revenu médian (REV) :** La moyenne est de 22 712 €. La valeur médiane est légèrement inférieure, ce qui suggère que quelques départements avec des revenus élevés augmentent la moyenne.
+
+-   **Nombre de grandes entreprises (gndENT) :** Il y a en moyenne 1,16 grandes entreprises par département. Certains départements n'en comptent qu'une centaine, tandis que d'autres en comptent des milliers.
+
+-   **Taux de chômage (txCHOM) :** On compte en moyenne 7,56% de chômage départemental. Le taux de chômage pourrait être lié à la proportion de diplômés, au revenu médian ou à la présence d'entreprises dynamiques.
+
+    ### Visualisation de la distribution des variables
+
+    ```{r, fig.width=10, fig.height=10,message=FALSE, warning=FALSE}
+
+    plot1<-ggplot(BD, aes(x=pcENT)) +  geom_histogram(color="black", fill="lightblue",binwidth=1.5) + 
+    labs(title="Graphique 1:
+         Répartition des proportion de création d'entreprises en 2022",x="Proportion de création d'entreprise",y="Nombre de départements")+theme_minimal()+ theme(plot.margin = margin(10, 10, 10, 10), plot.title = element_text(size = 10, hjust = 0.5), axis.title = element_text(size = 8),axis.text = element_text(size = 8))
+
+
+
+    plot2<-ggplot(BD, aes(x=nbENT)) +  geom_histogram(color="black", fill="lightgreen",binwidth=60) + 
+      labs(title="Graphique 2:
+           Répartition des départements selon le nombre d'entreprises 2021",x="Nombre d'entreprises",y="Nombre de départements")+theme_minimal()+ theme(plot.margin = margin(10, 10, 10, 10), plot.title = element_text(size = 10, hjust = 0.5), axis.title = element_text(size = 8),axis.text = element_text(size = 8))
+
+
+    plot3<-ggplot(BD, aes(x=POP)) +  geom_histogram(color="black", fill="lightyellow",binwidth=100) + 
+      labs(title="Graphqiue 3:
+           Répartition de la population par département en 2021",x="Population",y="Nombre de départements")+theme_minimal()+ theme(plot.margin = margin(10, 10, 10, 10), plot.title = element_text(size = 10, hjust = 0.5), axis.title = element_text(size = 8),axis.text = element_text(size = 8))
+
+
+    plot4<-ggplot(BD, aes(x=DIPL)) +  geom_histogram(color="black", fill="lightpink",binwidth=1.5) + 
+      labs(title="Graphique 4:
+           Répartition de la part de diplômés Bac+3 et plus par département en 2021",x="Part des diplômés au minimum d'un Bac+3 %",y="Nombre de départements")+ theme_minimal()+ theme(plot.margin = margin(10, 10, 10, 10), plot.title = element_text(size = 10, hjust = 0.5), axis.title = element_text(size = 8),axis.text = element_text(size = 8))
+
+
+    plot5<-ggplot(BD, aes(x=REV)) + 
+      geom_histogram(color="black", fill="lightcyan", binwidth=0.5) + 
+      labs(title="Graphique 5:
+           Répartition des revenus médians annuels par département en 2021", 
+           x="Revenu médian annuel", y="Nombre de départements") + 
+      theme_minimal()+ theme(plot.margin = margin(10, 10, 10, 10), 
+                             plot.title = element_text(size = 10, hjust = 0.5),
+                             axis.title = element_text(size = 8),
+                             axis.text = element_text(size = 8))
+
+    plot6<-ggplot(BD, aes(x=gndENT)) + 
+      geom_histogram(color="black", fill="lightcoral", binwidth=1) + 
+      labs(title="Graphique 6:  
+           Répartition des départements selon le nombre de grandes entreprises en 2021", 
+           x="Nombre de grandes entreprises", y="Nombre de départements") + 
+      theme_minimal()+ theme(plot.margin = margin(10, 10, 10, 10), 
+                             plot.title = element_text(size = 10, hjust = 0.5),
+                             axis.title = element_text(size = 8),
+                             axis.text = element_text(size = 8))
+
+    plot7<-ggplot(BD, aes(x=txCHOM)) + 
+      geom_histogram(color="black", fill="lightseagreen", binwidth=1.5) + 
+      labs(title="Graphique 7:
+           Répartition des taux de chômage par département en 2021", 
+           x="Taux de chômage %", y="Nombre de départements") + 
+      theme_minimal()+ theme(plot.margin = margin(10, 10, 10, 10), 
+                             plot.title = element_text(size = 10, hjust = 0.5),
+                             axis.title = element_text(size = 8),
+                             axis.text = element_text(size = 8))
+
+    plot8<-ggplot(BD, aes(x=METRO)) + 
+      geom_bar(color="black", fill="lightsteelblue") + 
+      labs(title="Graphique 8:
+           Présence d'une métropole par département", 
+           x="Présence d'une métropole (1 = Oui, 0 = Non)", y="Nombre de départements") + scale_x_discrete(labels=c("0" = "Sans métropole", "1" = "Avec métropole"))
+      theme_minimal()+ theme(plot.margin = margin(10, 10, 10, 10), 
+                             plot.title = element_text(size = 16 , hjust = 0.5),
+                             axis.title = element_text(size = 8),
+                             axis.text = element_text(size = 8))
+     
+    # Disposition des graphiques en 4 lignes et 2 colonnes
+      final_plot <- (plot1 + plot2) /
+                  (plot3 + plot4) /
+                  (plot5 + plot6) /
+                  (plot7 + plot8) +
+      plot_layout(
+        guides = "collect",          # Collecter les légendes (si présentes)
+        heights = c(2, 2, 2, 2),           # Augmente la hauteur des lignes
+        widths = c(1, 1)       # Largeurs égales pour chaque graphique
+      ) +
+      plot_annotation(
+        title = "Visualisation des indicateurs départementaux",
+        theme = theme(
+          plot.title = element_text(size = 24, hjust = 0.5, face = "bold"),
+          plot.margin = margin(30, 30, 30, 30)  # Marge globale
+        )
+      )
+    # Afficher le graphique
+    final_plot
+    ```
+
+    **Commentaires**
+
+    **Graphique 1 :** Distribution asymétrique à droite, avec la majorité des départements ayant une proportion de création d'entreprises comprise entre 15% et 20 %. Présence de départements atypiques. Les départements de la Seine-Saint-Denis (93), du Val-d’Oise (95)
+
+    **Graphique 2 :** La distribution est fortement concentrée sur des valeurs basses. Cela reflète probablement une concentration économique autour de quelques départements plus dynamiques. La majorité des départements ont un faible nombre d'entreprises (entre 0 et 100). Environ 40 départements ont moins de 50 entreprises. Les départements de Paris (75), les Bouches-du-Rhône (13), et le Rhône (69) se démarquent.
+
+    **Graphique 3 :** La population est très inégalement répartie : la plupart des départements sont peu peuplés, tandis qu’un petit nombre (Paris (75), les Bouches-du-Rhône (13), et le Nord (59)) concentre une forte population.
+
+    **Graphique 4 :** La distribution est aussi asymétrique avec une forte concentration de départements ayant une part de diplômés relativement faible à moyenne et des outliers avec des valeurs très fortes.
+
+    **Graphique 5 :** Quelques départements ont des revenus médians beaucoup plus élevés que la majorité, ce qui indique des disparités importantes.
+
+    **Graphique 6 :** La distribution est fortement asymétrique avec une concentration des valeurs faibles et quelques départements ayant un nombre nettement plus élevé de grandes entreprises .
+
+    Une fois de plus on retrouve les départements de Paris (75), des Hauts-de-Seine (92), et des Yvelines (78) où d'importantes disparités sont observées ainsi qu'au Nord.
+
+    **Graphqiue 7:** La répartition est relativement symétrique. La dispersion du taux de chômage ressemble à une loi normale, il ne semble pas y avoir d'individus atypiques (de valeurs extrêmes)
+
+    **Graphqiue 8:** Plus de 70 départements n'ont pas de métropole, ce qui illustre un déséquilibre dans la répartition des infrastructures économiques.
+
+    ## 1.2.2. Analyse descriptive bivariée
+
+    ```{r, fig.width=10, fig.height=10,message=FALSE, warning=FALSE}
+
+    g1<- ggplot(BD, aes(x=nbENT, y=pcENT)) +
+      geom_point(color="blue",size=1) +
+      geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE)+labs(
+        title = "Graphique 9:
+        Proportion de création d'entreprises en 2022 \n par rapport au nombre d'entreprises en 2021",
+        x = "Nombre d'entreprises (2021)",
+        y = "Proportion de création d'entreprises"
+      ) +theme_minimal()+ theme(plot.margin = margin(10, 10, 10, 10), 
+                             plot.title = element_text(size = 10, hjust = 0.5),
+                             axis.title = element_text(size = 8),
+                             axis.text = element_text(size = 8))
+      
+    #g1<-ggplotly(g1,tooltip = c("x","y",label="code_name"))
+
+
+
+    g2<-ggplot(BD, aes(x = POP, y = pcENT)) + 
+      geom_point() +
+      geom_smooth(method = "lm", se = FALSE, color = "blue") + 
+      labs(x = "Population", y = "Proportion de création d'entreprises", 
+           title = "Graphique 10: 
+      Relation entre la population \n et la proportion de création d'entreprises")+ 
+      theme_minimal()+ theme(plot.margin = margin(10, 10, 10, 10), 
+                             plot.title = element_text(size = 10, hjust = 0.5),
+                             axis.title = element_text(size = 8),
+                             axis.text = element_text(size = 8))
+
+
+
+    g3<-ggplot(BD, aes(x = DIPL, y = pcENT)) + 
+      geom_point() +
+      geom_smooth(method = "lm", se = FALSE, color = "blue") + 
+      labs(x = "Part de diplômés d’un Bac+3 et plus dans la population active", y = "Proportion de création d'entreprises", 
+           title = "Graphique 11:
+            Relation entre la part de diplômé et 
+           la proportion de création d'entreprises")+ 
+      theme_minimal()+ theme(plot.margin = margin(10, 10, 10, 10), 
+                             plot.title = element_text(size = 10, hjust = 0.5),
+                             axis.title = element_text(size = 8),
+                             axis.text = element_text(size = 8))
+
+
+    g4<-ggplot(BD, aes(x = REV, y = pcENT)) + 
+      geom_point() +
+      geom_smooth(method = "lm", se = FALSE, color = "blue") + 
+      labs(x = "revenu médian", y = "Proportion de création d'entreprises", 
+           title = "Graphique 12:
+      Relation entre le revenu médian \n et la proportion de création d'entreprises")+ 
+      theme_minimal()+ theme(plot.margin = margin(10, 10, 10, 10), 
+                             plot.title = element_text(size = 10, hjust = 0.5),
+                             axis.title = element_text(size = 8),
+                             axis.text = element_text(size = 8))
+
+
+
+    g5<-ggplot(BD, aes(x = gndENT, y = pcENT)) + 
+      geom_point() +
+      geom_smooth(method = "lm", se = FALSE, color = "blue") + 
+      labs(x = "nombre de grandes entreprises", y = "Proportion de création d'entreprises", 
+           title = "Graphique 13:
+           Relation entre le nombre de grandes entreprises \n et la proportion de création d'entreprises")+ 
+      theme_minimal()+ theme(plot.margin = margin(10, 10, 10, 10), 
+                             plot.title = element_text(size = 10, hjust = 0.5),
+                             axis.title = element_text(size = 8),
+                             axis.text = element_text(size = 8))
+
+
+    g6<-ggplot(BD, aes(x = txCHOM, y = pcENT)) + 
+      geom_point() +
+      geom_smooth(method = "lm", se = FALSE, color = "blue") + 
+      labs(x = "taux de chômage", y = "Proportion de création d'entreprises", 
+           title = "Graphique 14:
+      Relation entre le taux de chômage \n et la proportion de création d'entreprises")+ 
+      theme_minimal()+ theme(plot.margin = margin(10, 10, 10, 10), 
+                             plot.title = element_text(size = 10, hjust = 0.5),
+                             axis.title = element_text(size = 8),
+                             axis.text = element_text(size = 8))
+
+
+    #grid.arrange(g1,g2,g3,g4,g5,g6,ncol= 3,top = "Dashboard des graphiques",padding = unit(0, "cm"))
+
+    # Disposition des graphiques en 4 lignes et 2 colonnes
+    final_plot <- (g1 + g2 + g3) /
+                  (g4 + g5 + g6) +
+      plot_layout(
+        guides = "collect",          # Collecter les légendes (si présentes)
+        heights = c(2, 2),           # Augmente la hauteur des lignes
+        widths = c(1, 1, 1)       # Largeurs égales pour chaque graphique
+      ) +
+      plot_annotation(
+        theme = theme(
+          plot.title = element_text(size = 24, hjust = 0.5, face = "bold"),
+          plot.margin = margin(30, 30, 30, 30)  # Marge globale
+        )
+      )
+
+    # Afficher le graphique
+    final_plot
+    ```
+
+    **Commentaire :**
+
+-   **Graphique 9 *(Nombre d'entreprises vs Proportion de création d'entreprises )*** **:** Il y a une relation positive nette avec une pente assez forte et une légère tendance exponentielle. Les points sont majoritairement concentrés dans les faibles valeurs, avec quelques extrêmes créant une dispersion. [Une transformation logarithmique]{.underline} est recommandée pour étaler les points et rendre la relation plus linéaire.
+
+-   **Graphique 10 *(Population vs Proportion de création d'entreprises)* :** La relation est positive mais modérée, avec une pente moins marquée. Les points sont dispersés, avec une concentration dans les faibles valeurs de population et quelques valeurs extrêmes. [Une transformation logarithmique]{.underline} est suggérée pour uniformiser la distribution et gérer les valeurs extêmes.
+
+-   **Graphique 11** ***(Part de diplômés vs Proportion de création d'entreprises)*** **:** Il existe une relation positive avec une pente moyenne et une concentration des points entre 10 et 25% de diplômés, avec quelques valeurs extrêmes. Étant donné la distribution uniforme et le fait que les données sont en pourcentage, a[ucune transformation logarithmique]{.underline} n'est nécessaire.
+
+-   **Graphique 12** ***(Revenu médian annuel vs Proportion de création d'entreprises)*** **:** La relation est positive mais faible, avec une pente légère et une grande dispersion des points. Les points sont concentrés entre 21 et 24% pour le revenu médian. La distribution étant déjà assez uniforme, [aucune transformation logarithmique]{.underline} n'est nécessaire.
+
+-   **Graphique 13** ***(Nombre de grandes entreprises vs Proportion de création d'entreprises)*** **:** Il y a une forte relation positive avec une pente prononcée, les points étant concentrés entre 0 et 2,5 grandes entreprises, avec quelques extrêmes. [Une transformation logarithmique]{.underline} est conseillée pour mieux gérer la concentration des petites valeurs et les valeurs extrêmes
+
+-   **Graphique 14 *(Taux de chômage vs Proportion de création d'entreprises)* :** La relation est positive mais faible à modérée, avec une pente légère et une dispersion importante des points. Les points sont répartis assez uniformément entre 4 et 12% du chômage. Étant donné la distribution déjà uniforme, [aucune transformation logarithmique]{.underline} n'est nécessaire.
+
+    #### Présence de métropole vs Proportion de création d'enterpise
+
+    ```{r, message=FALSE, warning=FALSE}
+    ggplot(BD, aes(x = factor(METRO), y = pcENT)) +   geom_boxplot(fill = c("#FFA07A", "#20B2AA"), alpha = 0.7) +   labs(     title = "Graphqiue 15:
+        Proportion de création d'entreprises vs présence de métropole",     x = "Présence de métropole (1 = Oui, 0 = Non)",     y = "Proportion de création d'entreprises"   ) + scale_x_discrete(labels=c("0" = "Sans métropole", "1" = "Avec métropole")) +   theme_minimal() +theme(plot.margin = margin(10, 10, 10, 10), 
+                             plot.title = element_text(size = 10, hjust = 0.5),
+                             axis.title = element_text(size = 8),
+                             axis.text = element_text(size = 10))
+
+    ```
+
+    **Commentaire** **:**
+
+    Les départements avec une métropole ont une médiane de proportion de création d'entreprises plus élevée que ceux sans métropole. Cela signifie que la présence d'une métropole est associée à une proportion plus importante de créations d'entr
+
+    ### Autres études bivariées
+
+    #### Diplôme vs revenu
+
+    ```{r, message=FALSE, warning=FALSE}
+    ggplot(BD, aes(x = DIPL, y = REV)) +
+      geom_point(color = "#69b3a2", size = 2, alpha = 0.8) +  # Nuage de points
+      geom_smooth(method = "lm", color = "red", fill = "#FF9999", se = TRUE) +  # Courbe de tendance
+      labs(
+        title = "Graphique 16:
+        Relation entre la part des diplômés (Bac+3 et plus) 
+        et le revenu médian",
+        x = "Part des diplômés Bac+3 et plus (%)",
+        y = "Revenu médian (€)"
+      ) +theme(plot.title = element_text(size = 12, hjust = 0.5))+
+      theme_minimal(base_size = 14)+theme(plot.margin = margin(10, 10, 10, 10), 
+                             plot.title = element_text(size = 10, hjust = 0.5),
+                             axis.title = element_text(size = 10),
+                             axis.text = element_text(size = 10))
+
+    ```
+
+    **Commentaire** **:** Il y a une relation positive entre le niveau d'étude et le revenu. Cependant, la pente est faible, c'est-à-dire que l'effet de l'augmentation de la part des diplômés dans un département est relativement faible sur le revenu annuel médian.
+
+    #### Population VS Nombre de grandes entreprises
+
+    ```{r, message=FALSE, warning=FALSE}
+    ggplot(BD, aes(x = POP, y = gndENT)) +
+      geom_point(color = "#56B4E9", size = 1.4, alpha = 0.8) + 
+      geom_smooth(method = "lm", color = "red", se = TRUE, fill = "#FF9999") + 
+      labs(
+        title = "Graphique 17:
+        Relation entre la population municipale et 
+        le nombre de grandes entreprises",
+        x = "Population municipale",
+        y = "Nombre de grandes entreprises"
+      ) +
+      theme_minimal(base_size = 14)+theme(plot.margin = margin(10, 10, 10, 10), 
+                             plot.title = element_text(size = 10, hjust = 0.5),
+                             axis.title = element_text(size = 10),
+                             axis.text = element_text(size = 10))
+    ```
+
+    **Commentaire**: Relation positive et très linéaire entre la population et le nombre de grandes entreprises. Le nombre de grandes entreprises augmente lorsque la population augmente.
+
+    ## 1.3. Etude de corrélation
+
+### 1.3.1. Analyse de la régression linéaire et de l'estimation des MCO
+
+#### **Modèle de la** **régression** **linéaire multiple**
+
+pcENT = β0 + β1 nbENT + β2 POP + β3 DIPL + β4 REV + β5 gndENT + β6 txCHOM + β7 METRO + Ei
+
+Première estimation des MCO de la proportion de création d'entreprises par rapport aux autres variables.
+
+```{r, message=FALSE, warning=FALSE}
+lm1 <- lm(pcENT ~ nbENT + POP + REV + DIPL + gndENT + txCHOM + METRO, data=BD)
+
+summary(lm1)
+#stargazer(lm1, type = "html", out = "Résumé_lm1.doc")
+```
+
+**Interprétation :**
+
+R2-ajusté : 59% de la variance de la proportion de création d'entreprises est expliquée par les variables explicatives. Cela indique un modèle de qualité modérée.
+
+F-statistique : 20,097 et p-value: 1,008e-15. Le modèle global est significatif, ce qui signifie que l'ensemble des prédicteurs a une influence sur la variable dépendante.
+
+Cependant, au seuil de 5%, on rejette l'hypothèse nulle uniquement pour le nombre d'entreprises, la population, la part de diplômés et le taux de chômage. Les autres variables n'ont pas d'influence significative au niveau de 5%, sur la proportion de création d'entreprises.
+
+#### **Significativité statistique** **des variables explicatives**
+
+On s'intéresse à la régression linéaire simple pour comprendre la relation entre la variable dépendante et les variables explicatives individuellement, voici ce qu'on observe :
+
+```{r, message=FALSE, warning=FALSE}
+multi_model_summary <- function(data, target, predictors) {
+  summary_table <- data.frame(
+    Predictor = character(),
+    Coefficient = numeric(),
+    Std_Error = numeric(),
+    t_value = numeric(),
+    P_value = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  # Boucle sur chaque prédicteur
+  for (predictor in predictors) {
+    formula <- as.formula(paste(target, "~", predictor))
+    
+    # Ajuster le modèle
+    model <- lm(formula, data = BD)
+    model_summary <- summary(model)
+    
+    # Extraire les informations importantes
+    coefficient <- coef(model_summary)[2, "Estimate"]
+    std_error <- coef(model_summary)[2, "Std. Error"]
+    t_value <- coef(model_summary)[2, "t value"]
+    p_value <- coef(model_summary)[2, "Pr(>|t|)"]
+    
+    # Ajouter les informations dans la table
+    summary_table <- rbind(summary_table, data.frame(
+      Predictor = predictor,
+      Coefficient = coefficient,
+      Std_Error = std_error,
+      t_value = t_value,
+      P_value = p_value
+    ))
+  }
+  
+  return(summary_table)
+}
+
+# Nom de la variable cible
+target_variable <- "pcENT"
+
+# Liste des variables explicatives
+explanatory_variables <- c("nbENT", "POP", "REV", "DIPL", "gndENT", "txCHOM", "METRO")
+
+# Appeler la fonction
+results_summary <- multi_model_summary(my_data, target_variable, explanatory_variables)
+
+# Afficher la table récapitulative
+print(results_summary)
+
+```
+
+**Interprétation :**
+
+On remarque que pour toutes les variables explicatives, au seuil de 5% on rejette les hypothèses nulles. Cependant, une fois qu’on les combine en un seul modèle, les variables qui, séparément, ont un pouvoir explicatif sur la proportion de création d'entreprises en n'ont plus.
+
+Cela peut provenir d'un problème de multicolinéarité entre les variables explicatives dans le modèle.
+
+### 1.3.2. Analyse de la corrélation
+
+Si deux ou plusieurs variables explicatives sont fortement corrélées ou linéairement dépendantes dans un modèle de régression, cela constitue un problème. En effet, leur contribution respective à la variable dépendante sera difficile à différencier.
+
+#### a) Matrice de corrélation
+
+Si la valeur absolue du coefficient de corrélation entre deux variables excède 0.8, on peut soupçonner la colinéarité.
+
+```{r, message=FALSE, warning=FALSE}
+cor_BD <- cor(BD[,c("pcENT","nbENT","POP","DIPL","REV","gndENT","txCHOM")]) 
+
+ggcorrplot(cor_BD,
+           method = "square",        
+           type = "lower",           
+           lab = TRUE,               
+           lab_size = 3,             
+           colors = c("blue", "white", "red"),  
+           title = "Matrice de corrélation",
+           ggtheme = theme_minimal())
+```
+
+**Interprétation :** Selon les coefficients de corrélation observés, on peut soupçonner un problème de colinéarité de la variable nbENT avec POP et gndENT.
+
+#### b) Règle de Klein
+
+*A noter* *: la Règle de Klein appuie notre analyse de la matrice de corrélation, mais l'interprétation est répétitive donc nous l'avons pas écrit dans le rapport final.*
+
+Si le carré du coefficient de corrélation est supérieur au R\^2, on peut soupçonner de la colinéarité. 
+
+```{r, message=FALSE, warning=FALSE}
+#On supprime le code, le nom des département et l'indicatrice
+BD2 <- BD[,-c(1:3, 11)]
+
+cor(BD2)^2 > summary(lm1)$r.squared
+```
+
+**Interprétation :** La règle de Klein met aussi en avant un eventuel problème de colinéarité de la variable nbENT avec POP et gndENT.
+
+#### c) Colinéarités : VIF
+
+```{r, message=FALSE, warning=FALSE}
+vif <- vif(lm1)
+sqrtvif <- sqrt(vif(lm1))
+
+stargazer(vif,sqrtvif, type = "text", title = c("Variance Inflation Factors", "Square Root of Variance Inflation Factors"))
+```
+
+**Interprétation :**
+
+Le VIF \> 1 nous indique qu'il y a un certain niveau de colinéarité. On note que le résultat du VIF de nbENT et gndENT est supérieur à 5. cela signifie qu'il y a une colinéarité modérée entre le nombre d'entreprises et les autres régresseurs et le nombre de grandes entreprises et les autres régresseurs. Concernant les autres variables, le VIF est inférieur à 5 donc il y a une faible colinéarité mais il n'y a pas de problème majeur.
+
+La racine carrée de VIFj indique de combien de fois l’écart-type est modifié par rapport à la situation dans laquelle la variable xj serait décorrélée aux autres régresseurs. Par exemple, l’écart-type du coefficient de la variable du nombre d'entreprises est 2.81 fois plus grand qu’il ne le serait si le nombre d'entreprises n’était pas corrélée aux autres variables.
+
+**Conclusion de l'analyse de corrélation**
+
+La colinéarité entre nbENT, POP, et gndENT est suffisamment forte pour justifier une modification du modèle. on peut envisager :
+
+-   de supprimer les variables corrélées
+-   de les combiner (en utilisant une ACP)
+
+## 1.3.3. Sélection du modèle
+
+### L'AIC
+
+L’opération consiste donc à partir du modèle complet, de retirer une variable et de voir quel retrait entraîne la plus forte diminution de l’AIC. Si le retrait d’une variable n'entraine pas une diminution de l’AIC, on s’arrête. Sinon, on recommence le processus de retrait.
+
+Pour faciliter l’opération, voici une fonction qui retourne la valeur de l’AIC du modèle avec le plus de variable, ainsi que les valeurs du critère AIC pour les modèles auxquels on retire une variable :
+
+```{r, message=FALSE, warning=FALSE}
+# Fonction pour calculer l'AIC
+aic <- function(reg) {
+  n <- nrow(reg$model)
+  SCR <- sum(reg$residuals^2)
+  p <- ncol(lm1$model) - 1
+  resul <- n * log(SCR / n) + 2 * (p + 1)
+  return(resul)
+}
+
+# Fonction pour retirer une variable et calculer l'AIC
+AIC.retirer <- function(y, regresseurs) {
+  laFormule <- paste(y, "~", paste(regresseurs, collapse = "+"), sep = "")
+  reg.all <- lm(laFormule, data = BD)  # Assurez-vous que 'BD' est bien votre data frame
+
+  obtenirAICReg <- function(y, regresseurs, uneVariable) {
+    # On retire une variable de la liste des régresseurs
+    regresseurs <- regresseurs[-which(regresseurs %in% uneVariable)]
+    laFormule <- paste(y, "~", paste(regresseurs, collapse = "+"), sep = "")
+    reg.tmp <- lm(laFormule, data = BD)
+    return(c(variable = uneVariable, AIC = aic(reg.tmp)))
+  }
+
+  # Calcul de l'AIC du modèle complet
+  res1 <- c(AIC = aic(reg.all))
+
+  # Calcul de l'AIC pour chaque modèle en retirant une variable
+  res2 <- do.call("rbind", lapply(regresseurs, function(x) obtenirAICReg(y = y, regresseurs = regresseurs, uneVariable = x)))
+
+  # Comparaison des AIC
+  if (any(res2[, "AIC"] < res1)) {
+    # On peut retirer une variable
+    varARetirer <- as.character(res2[which(res2[, "AIC"] == min(res2[, "AIC"])), "variable"])
+    cat("La variable faisant le plus baisser l'AIC est :", varARetirer, sep = "\n")
+  } else {
+    # Tous les AIC obtenus en retirant une variable sont supérieurs ou égaux à l'AIC du modèle complet
+    cat("Le retrait d'une variable fait augmenter l'AIC, on conserve le modèle", laFormule, sep = "\n")
+  }
+
+  return(list(all = res1, moinsUn = res2))
+}
+
+```
+
+Application :
+
+```{r, message=FALSE, warning=FALSE}
+#Le modèle complet
+AIC1 <- AIC.retirer(y = "pcENT", regresseurs = c("nbENT", "POP", "DIPL", "REV", "gndENT", "txCHOM", "METRO"))
+
+stargazer(AIC1, type = "text", title = "AIC modèle complet")
+
+#On retire POP
+AIC2 <- AIC.retirer(y = "pcENT", regresseurs = c("nbENT", "DIPL", "REV", "gndENT", "txCHOM", "METRO"))
+
+stargazer(AIC2, type = "text", title = "AIC modèle sans POP")
+
+#On retire nbENT
+AIC3 <- AIC.retirer(y = "pcENT", regresseurs = c("POP", "DIPL", "REV", "gndENT", "txCHOM", "METRO"))
+
+stargazer(AIC3, type = "text", title = "AIC modèle sans nbENT")
+
+#On retire gndENT
+AIC4 <- AIC.retirer(y = "pcENT", regresseurs = c("nbENT", "POP","DIPL", "REV", "txCHOM", "METRO"))
+
+stargazer(AIC4, type = "text", title = "AIC modèle sans gndENT")
+
+```
+
+**Interprétation :**
+
+Le modèle qui minimise l'AIC est le modèle complet.
+
+**Le modèle retenu :**
+
+pcENT = β0 + β1 nbENT + β2 POP + β3 DIPL + β4 REV + β5 gndENT + β6 txCHOM + β7 METRO + Ei
+
+# PARTIE 2 : Estimation du modèle
+
+## 2.1. Spécification de la régréssion linéaire
+
+On justifie la spécification du modèle à l'aide de l'analyse bivariée vu dans la section 1.2.2.
+
+Nous avons fait le choix de comparé 3 modèles différents pour décider lequel des trois est le meilleur selon différents critères :
+
+```{r, message=FALSE, warning=FALSE}
+#Modèle de base
+lm1 <- lm(pcENT ~ nbENT + POP + DIPL + REV + gndENT + txCHOM + METRO, data = BD)
+
+#Modèle semi-Log
+lm2 <- lm(pcENT ~ log(nbENT) + log(POP) + DIPL + REV + log(gndENT) + txCHOM + METRO, data = BD)
+
+#Modèle Log-Log
+lm3 <- lm(log(pcENT) ~ log(nbENT) + log(POP) + DIPL + REV + log(gndENT) + txCHOM + METRO, data = BD)
+
+stargazer(lm1,lm2,lm3, type= "text")
+```
+
+**Interprétation :**
+
+En analysant les coefficients des trois modèles on remarque que le modèle 3 a plus de variables significatives à 95% (p-value \< 0,05) que les modèles 1 et 2. En comparant les R2-ajusté, celui du modèle 3 est le plus élevé. Cela signifie que 68,6% de la variance de la proportion de création d'entreprise est expliquée par les variables explicatives. La qualité du modèle 3 est bien meilleure que celle du modèle 1 et 2.
+
+En cherchant à maximiser le R2-ajusté et la validité globale, on privilégie le modèle 3.
+
+## 2.2. Etude de la robustesse du modèle
+
+### 2.2.1. Etude de l'hétéroscédasticité
+
+```{r, message=FALSE, warning=FALSE}
+# Le test de White 
+#Modèle 1
+bptest(lm1, ~ poly(nbENT, 2) + poly(POP, 2) + poly(DIPL, 2) + 
+       poly(gndENT, 2) + poly(txCHOM, 2) + METRO, 
+       data = BD)
+
+#Modèle 2
+bptest(lm2, ~ poly(log(nbENT), 2) + poly(log(POP), 2) + poly(DIPL, 2) + 
+       poly(log(gndENT), 2) + poly(txCHOM, 2) + METRO, 
+       data = BD)
+
+#Modèle 3
+bptest(lm3, ~ poly(log(nbENT), 2) + poly(log(POP), 2) + poly(DIPL, 2) + 
+       poly(log(gndENT), 2) + poly(txCHOM, 2) + METRO, 
+       data = BD)
+
+```
+
+**Interprétation :**
+
+Pour chacun des modèles : Une p-value \< 0,05, on rejette H0, le test nous indique la présence d'hétéroscédasticité dans tous les modèles. C'est-à-dire que la variance des résidus dans les différents modèles de régression n'est pas constante à travers toutes les observations.
+
+La valeur de BP du modèle 3 (34,647) plus élevée par rapport au modèle 2 (34,023), indique une hétéroscédasticité légèrement plus élevée.
+
+Cela peut entraîner des estimations inefficaces des coefficients du modèle et affecter les tests d'hypothèses. Il est donc important de corriger l'hétéroscédasticité pour obtenir des résultats fiables.
+
+#### Correction de l'hétéroscédasticité
+
+```{r, message=FALSE, warning=FALSE}
+# Calcul des erreurs-types robustes avec la correction de White
+cov_robuste_hc0 <- hccm(lm3, type="hc0")
+reg_robuste_hc0= coeftest(lm3, vcov = cov_robuste_hc0)
+
+cov_robuste_HAC <- vcovHAC(lm3)
+reg_robuste_HAC= coeftest(lm3, vcov = cov_robuste_HAC)
+
+#affichage des modèles avec le package stargazer
+stargazer(lm3, reg_robuste_hc0, reg_robuste_HAC, 
+  title="Comparaison de l'estimation MCO",
+  type="text", 
+  digits=3, 
+  column.labels=c("MCO","MCOWhite", "MCONewey"),
+  dep.var.labels.include = FALSE,
+  model.numbers = FALSE,
+  dep.var.caption="Variable dépendante :'proportion de création d'entreprise",
+  model.names=FALSE) 
+
+```
+
+**Interprétation :** Les erreurs-types robustes permettent d'ajuster les intervalles de confiance et corrige la variance. Cela nous permet de fournir des tests valides même en présence d'hétéroscédasticité.
+
+Néanmoins, il ne faut pas se limiter au test Breusch-Pagan pour choisir un modèle.
+
+### 2.2.2. Test de normalité des résidus
+
+```{r, message=FALSE, warning=FALSE}
+par(mfrow = c(2, 2))
+
+#Modele 1
+res1 <- residuals(lm1)
+shapiro.test(res1)
+
+qqnorm(res1, main = "QQ-plot des résidus du modèle log-log")
+qqline(res1, col = "red")
+
+#Modèle 2
+res2 <- residuals(lm2)
+shapiro.test(res2)
+
+qqnorm(res2, main = "QQ-plot des résidus du modèle log-log")
+qqline(res2, col = "red")
+
+#Modèle 3
+res3 <- residuals(lm3)
+shapiro.test(res3)
+
+
+qqnorm(res3, main = "QQ-plot des résidus du modèle log-log")
+qqline(res3, col = "red")
+```
+
+**Interprétation :**
+
+Pour chaque modèle : Au seuil de 5%, la p-value \< 0,05, alors on rejette H0. Là aussi, les trois modèles ne respectent pas l'hypothèse de normalité.
+
+A l'aide des QQplot, on remarque que pour les trois modèles, trois individus sont éloignés significativement de la ligne rouge de référence qui représente la distribution normale théorique. Ces points sont clairement des valeurs aberrantes (individus atypiques). Ils sont problématiques car le modèle ne peut pas respecter l'hypothèse de normalité.
+
+Il est possible d'améliorer la robustesse de la régression en identifiant les individus qui peuvent être influents et qui faussent le modèle.
+
+### 2.2.3. Etude des points influents
+
+```{r, message=FALSE, warning=FALSE}
+#Distance de Cook
+plot(lm3, which = 4)
+
+plot(lm3, which = 5)
+
+#Graphs étude des résidus
+par(mfrow = c(2, 2))
+plot(lm3)
+```
+
+**Interpretation :** On identifie trois individus atypiques qui ont une certaine influence notable à l'aide des différents graphiques qui nous permettent d'étudier les résidus. Les départements de l'Essonne (91) mais qui correspond au point 90 sur le graphique et du Val-d'Oise (95) qui correspond au point 94, bien qu'ils soient atypiques, leur distance par rapport à la tendance du modèle est faible (inférieur à 0,5), mais il ne faut pas sous-estimer leur influence significative sur le modèle. Cependant, le département de la Seine-Saint-Denis (93) qui correspond au point 92, a une distance de Cook proche de 1. Ce département pourrait avoir une forte influence sur les coefficients estimés et sur la qualité d'ajustement du modèle.
+
+### 2.2.4. Analyse de robustesse de la régression linéaire sans les points influents
+
+```{r}
+#On enlève les individus atypiques influents
+BD_sans_atyp <- BD[-c(90,92,94),]
+
+#Régression linéaire
+lmAtyp <- lm(log(pcENT) ~ log(nbENT) + log(POP) + DIPL + REV + log(gndENT) + txCHOM + METRO, data = BD_sans_atyp)
+
+#Résumé du modèle 
+stargazer(lmAtyp, type= "text")
+
+#Hétéroscédasticité : test de White
+bptest(lmAtyp, ~ poly(log(nbENT), 2) + poly(log(POP), 2) + poly(DIPL, 2) + 
+       poly(log(gndENT), 2) + poly(txCHOM, 2) + METRO, 
+       data = BD_sans_atyp)
+
+#Test de Normalité : test de Shapiro et QQplot
+resAtyp <- residuals(lmAtyp)
+shapiro.test(resAtyp)
+
+qqnorm(resAtyp, main = "QQ-plot des résidus du modèle log-log")
+qqline(resAtyp, col = "red")
+```
+
+**Significativité statistique des variables**
+
+Les variables log(nbENT), log(POP), DIPL, log(REV), log(txCHOM) sont significatives statistiquement pour un niveau de confiance de 99%. La variable log(gndENT) est aussi significative mais pour un niveau de confiance de 95%. En revanche, la variable METRO n'exerce aucune influence sur la variable à expliquer.
+
+**Validité globale du modèle**
+
+[Test de Fisher]{.underline} : La p-value est inférieur à 1%, on rejette H0, le modèle est globalement satisfaisant au seuil de 1%.
+
+Un R2 ajusté de 75,8 % signifie que 75,8 % de la variabilité de la variable dépendante est expliquée par les variables explicatives du modèle ajusté. Ce niveau élevé indique un bon pouvoir explicatif de votre modèle.
+
+**Hétéroscédasticité**
+
+[Test de White]{.underline} : La p-value \> 5%. On accepte H0. Le test nous indique que le modèle ne souffre pas d'hétéroscédasticité, ainsi l'hypothèse d'homoscédasticité est respectée.
+
+**Normalité des résidus**
+
+[Test de Shapiro]{.underline} : La p-value \> 5%. On accepte H0. Les résidus respectent l'hypothèse de normalité.
+
+### Choix du modèle
+
+*log(pcENTi) =* β*0 +* β*1 log(nbENTi) +* β*2 log(POPi) +* β*3 DIPLi+* β*4 log(REVi) +* β*5 log(gndENTi) +* β*6 log(txCHOMi) +* β*7 METROi+Ei*
+
+Mais sans les points influents !
+
+```{r}
+lmAtyp
+```
+
+**Le modèle sans les points influents est clairement meilleur que le modèle initial pour plusieurs raisons.** Notamment parce qu’il respecte les hypothèses de robustesse nécessaires à une régression linéaire fiable, contrairement au modèle avec points atypiques.
+
+Toutes les variables pertinentes sont statistiquement significatives à des seuils de confiance élevés (1 % ou 5 %). Ce qui renforce leur rôle dans l’explication de la variabilité de la variable dépendante.
+
+Le modèle sans points atypiques présente un R2 ajusté de 75,8 %, nettement supérieur au modèle initial (R2 ajusté de 67,7 %). Cette amélioration reflète un meilleur ajustement aux données, grâce à l’élimination des points influents.
+
+## 2.3. Autres tests
+
+### 2.3.1. Test de changement structurel : Test de Chow
+
+Analyser si il y a une rupture structurelle entre les départements ayant une métropole et ceux qui n'en ont pas.
+
+```{r, message=FALSE, warning=FALSE}
+BD <- BD %>% arrange(desc(METRO))
+
+sctest(lmAtyp, type = "Chow", point = 22)
+```
+
+**Interprétation :** p-value \> 5%. Il n'y a pas de preuve de rupture structurelle.
+
+### 2.3.2. Vérifier la spécification du modèle : RESET test
+
+```{r}
+#RESET test
+resettest(lmAtyp)
+```
+
+**Interprétation :** p-value \> 5%. On accepte H0 selon laquelle le modèle est correctement spécifié. Cela signifie que les relations spécifiées dans le modèle sont probablement appropriées.
+
+# PARTIE 3 : Conclusion
+
+## Interprétation des coefficients
+
+```{r}
+#Résumé du modèle 
+stargazer(lmAtyp, type= "text")
+```
+
+**Constante :** β0 = 0.929
+
+**log(nbENT) :** β1 = -0.231
+
+Une augmentation de 1% du nombre d'entreprises est associée à une *diminution* de 0.231% de la proportion de création d'entreprise.
+
+**log(POP) :** β2 = 0.249
+
+Une augmentation de 1% de la population est associée à une *augmentation* de 0.249% de la proportion de création d'entreprises.
+
+**DIPL :** β3 = 0.005
+
+Une augmentation d'un point de pourcentage du niveau moyen de diplôme entraîne une *augmentation* de 0.5% de la proportion de création d'entreprises.
+
+**REV :** β4 = 0.035
+
+Une augmentation de 1000€ du revenu moyen est associée à une *augmentation* de 0.35% de la proportion de création d'entreprises.
+
+**log(gndENT) :** β5 = 0.060
+
+Une augmentation de 1% du nombre de grandes entreprises est associée à une *augmentation* de 0.060% de la proportion de création d'entreprises.
+
+**txCHOM :** β6 = 0.046
+
+Une augmentation d'une unité du taux de chômage est associée à une *augmentation* de 0.046% de la proportion de création d'entreprises.
+
+**METRO :** β7 = 0.034
+
+La présence de métropole ou non dans une département n’a *pas d’effet statistiquement significatif* sur la proportion de création d'entreprises. Par conséquent, cette variable n'exerce aucune influence sur la proportion d'entreprises.
